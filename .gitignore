@@ -9,3 +9,6 @@ wheels/
 # Virtual environments
 .venv
 *.DS_Store
+extern/*
+ai_interviewer/knowledge_graph/python_backend_junior.json
+uv.lock

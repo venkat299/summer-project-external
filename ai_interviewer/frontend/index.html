@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Interviewer Test Client</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for the audio visualizer and button pulse */
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+            }
+            50% {
+                transform: scale(1.05);
+                box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
+            }
+        }
+        .pulse-animate {
+            animation: pulse 2s infinite;
+        }
+        #visualizer {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100px;
+            gap: 4px;
+        }
+        .bar {
+            width: 10px;
+            background-color: #3B82F6; /* blue-500 */
+            transition: height 0.1s ease-in-out;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white font-sans flex items-center justify-center min-h-screen">
+
+    <div class="w-full max-w-2xl mx-auto p-8 bg-gray-800 rounded-2xl shadow-2xl border border-gray-700">
+        <div class="text-center mb-6">
+            <h1 class="text-4xl font-bold text-blue-400">AI Technical Interviewer</h1>
+            <p class="text-gray-400 mt-2">Press the button below to start your mock interview session.</p>
+        </div>
+
+        <!-- Status Display -->
+        <div id="status" class="text-center my-6 p-3 bg-gray-700 rounded-lg text-lg font-medium text-gray-300 transition-all duration-300">
+            Awaiting Connection...
+        </div>
+
+        <!-- Audio Visualizer -->
+        <div id="visualizer" class="my-8">
+            <!-- Bars will be dynamically generated here -->
+        </div>
+
+        <!-- Control Button -->
+        <div class="flex justify-center mt-8">
+            <button id="controlButton" class="px-8 py-4 bg-blue-600 text-white font-bold text-xl rounded-full shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50 transition-all duration-300 transform hover:scale-105">
+                Start Interview
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Element References ---
+        const controlButton = document.getElementById('controlButton');
+        const statusDiv = document.getElementById('status');
+        const visualizer = document.getElementById('visualizer');
+
+        // --- Configuration ---
+        const SESSION_ID = `session_${Date.now()}`;
+        const WEBSOCKET_URL = `ws://localhost:8000/interview/${SESSION_ID}`; // Assumes FastAPI runs on port 8000
+        const AUDIO_SAMPLE_RATE = 16000; // Sample rate required by Whisper
+        const AUDIO_TIMESLICE = 500; // Send audio data every 500ms
+
+        // --- State Management ---
+        let websocket;
+        let mediaRecorder;
+        let audioContext;
+        let analyser;
+        let visualizerFrameId;
+        let isInterviewActive = false;
+        let isListening = false;
+
+        // --- Audio Visualization ---
+        const BAR_COUNT = 40;
+        for (let i = 0; i < BAR_COUNT; i++) {
+            const bar = document.createElement('div');
+            bar.classList.add('bar');
+            bar.style.height = '2px';
+            visualizer.appendChild(bar);
+        }
+
+        function drawVisualizer() {
+            if (!isListening) {
+                const bars = visualizer.getElementsByClassName('bar');
+                for (let i = 0; i < bars.length; i++) {
+                    bars[i].style.height = `2px`;
+                }
+                cancelAnimationFrame(visualizerFrameId);
+                return;
+            }
+
+            visualizerFrameId = requestAnimationFrame(drawVisualizer);
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(dataArray);
+
+            const bars = visualizer.getElementsByClassName('bar');
+            const barWidth = visualizer.width / BAR_COUNT;
+            
+            for (let i = 0; i < BAR_COUNT; i++) {
+                const barHeight = dataArray[i] * 0.4; // Scale height
+                bars[i].style.height = `${Math.max(2, barHeight)}px`;
+            }
+        }
+
+        // --- Core WebSocket Logic ---
+        function connectWebSocket() {
+            setStatus('Connecting to server...', 'text-yellow-400');
+            websocket = new WebSocket(WEBSOCKET_URL);
+
+            websocket.onopen = () => {
+                setStatus('Connection established. Waiting for first question...', 'text-green-400');
+                isInterviewActive = true;
+                controlButton.textContent = 'End Interview';
+                controlButton.classList.remove('bg-blue-600', 'pulse-animate');
+                controlButton.classList.add('bg-red-600');
+            };
+
+            websocket.onmessage = async (event) => {
+                if (event.data instanceof Blob) {
+                    stopListening(); // Stop listening when AI starts talking
+                    setStatus('AI is speaking...', 'text-blue-400');
+                    const audioBlob = event.data;
+                    await playAudio(audioBlob);
+                    // Once AI finishes speaking, start listening for the user's response
+                    setStatus('Your turn. I am listening...', 'text-green-400');
+                    startListening();
+                }
+            };
+
+            websocket.onclose = () => {
+                setStatus('Interview ended. Connection closed.', 'text-gray-400');
+                cleanup();
+            };
+
+            websocket.onerror = (error) => {
+                console.error('WebSocket Error:', error);
+                setStatus('Connection error. Please check the server.', 'text-red-500');
+                cleanup();
+            };
+        }
+
+        // --- Audio Handling ---
+        async function startListening() {
+            if (isListening) return;
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                // Set up audio context for visualization
+                if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const source = audioContext.createMediaStreamSource(stream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                source.connect(analyser);
+
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0 && websocket && websocket.readyState === WebSocket.OPEN) {
+                        // This sends audio as a Blob. The backend will need to handle it.
+                        // For raw PCM bytes, a more complex setup with an AudioWorklet is needed.
+                        // This approach is simpler and works if the backend can decode webm/opus.
+                        // **NOTE**: The provided Python backend expects raw PCM bytes. This client
+                        // would need an AudioWorklet to convert the stream to the correct format.
+                        // For this test, we'll assume the backend can be adapted or this is a demo.
+                        websocket.send(event.data);
+                    }
+                };
+
+                mediaRecorder.onstart = () => {
+                    isListening = true;
+                    drawVisualizer(); // Start visualization
+                };
+                
+                mediaRecorder.onstop = () => {
+                    isListening = false;
+                    drawVisualizer(); // Stop visualization
+                    stream.getTracks().forEach(track => track.stop()); // Stop the microphone track
+                };
+
+                mediaRecorder.start(AUDIO_TIMESLICE);
+
+            } catch (err) {
+                console.error('Error accessing microphone:', err);
+                setStatus('Microphone access denied.', 'text-red-500');
+            }
+        }
+
+        function stopListening() {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+            }
+        }
+
+        async function playAudio(audioBlob) {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            const arrayBuffer = await audioBlob.arrayBuffer();
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+            const source = audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioContext.destination);
+            source.start(0);
+
+            // Return a promise that resolves when the audio has finished playing
+            return new Promise(resolve => {
+                source.onended = resolve;
+            });
+        }
+
+        // --- UI and State Updates ---
+        function setStatus(message, colorClass) {
+            statusDiv.textContent = message;
+            statusDiv.className = `text-center my-6 p-3 bg-gray-700 rounded-lg text-lg font-medium transition-all duration-300 ${colorClass}`;
+        }
+
+        function cleanup() {
+            stopListening();
+            if (websocket) websocket.close();
+            isInterviewActive = false;
+            controlButton.textContent = 'Start Interview';
+            controlButton.classList.remove('bg-red-600');
+            controlButton.classList.add('bg-blue-600', 'pulse-animate');
+            if (visualizerFrameId) cancelAnimationFrame(visualizerFrameId);
+            const bars = visualizer.getElementsByClassName('bar');
+            for (let i = 0; i < bars.length; i++) {
+                bars[i].style.height = `2px`;
+            }
+        }
+
+        // --- Event Listener ---
+        controlButton.addEventListener('click', () => {
+            if (!isInterviewActive) {
+                connectWebSocket();
+            } else {
+                cleanup();
+            }
+        });
+
+        // Initial state
+        controlButton.classList.add('pulse-animate');
+
+    </script>
+</body>
+</html>
