@@ -12,11 +12,23 @@ except Exception as e:
     voice = None
 
 def synthesize_speech(text: str) -> bytes:
-    # ... (function content remains the same)
+    """
+    Synthesizes text into speech audio data.
+
+    - Method: Uses the Piper TTS engine to generate WAV audio.
+    - Input: A string of text to be spoken.
+    - Output: A bytes object containing the raw WAV audio data.
+    """
     if not voice or not text:
         return b''
     try:
-        wav_bytes = b''.join(list(voice.synthesize_stream_raw(text)))
+        # CORRECTED: The synthesize method can return an iterable of byte chunks.
+        # We must join them into a single bytes object before sending.
+        audio_chunks = []
+        for chunk in voice.synthesize(text):
+            audio_chunks.append(chunk)
+        
+        wav_bytes = b"".join(audio_chunks)
         return wav_bytes
     except Exception as e:
         print(f"Error during speech synthesis: {e}")
