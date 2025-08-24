@@ -17,7 +17,7 @@ FRONTEND_DIR = os.path.join(PROJECT_ROOT, "ai_interviewer/frontend")
 app = FastAPI(
     title="AI Interviewer API",
     description="Real-time technical interviews with an AI.",
-    version="3.0"
+    version="0.0"
 )
 
 # Include the WebSocket router from the routes module.
