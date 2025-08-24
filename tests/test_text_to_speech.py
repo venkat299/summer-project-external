@@ -4,6 +4,9 @@ import subprocess
 import pathlib
 import sys
 import types
+import io
+import wave
+import struct
 import pytest
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
@@ -23,6 +26,7 @@ sys.modules["piper"] = piper_module
 sys.modules["piper.voice"] = voice_module
 
 from ai_interviewer.audio_processing import text_to_speech
+from ai_interviewer.utils.wav_helper import add_wav_header
 
 
 class MockVoice:
@@ -65,3 +69,25 @@ def test_synthesize_speech_decodable_with_decodeaudiodata(tmp_path):
     result = subprocess.run(['node', '-e', script, str(file_path)])
     if result.returncode != 0:
         pytest.skip('decodeAudioData not available')
+
+
+def test_synthesize_speech_parseable_with_wave():
+    wav = text_to_speech.synthesize_speech("hello")
+    with wave.open(io.BytesIO(wav), "rb") as wf:
+        frames = wf.readframes(wf.getnframes())
+        assert len(frames) == wf.getnframes() * wf.getsampwidth() * wf.getnchannels()
+
+
+def test_synthesize_speech_fixes_data_size_mismatch():
+    pcm = b"\x00\x00" * 10
+    valid_wav = add_wav_header(pcm)
+    bad_datasize = struct.pack('<I', len(pcm) - 2)
+    bad_wav = valid_wav[:40] + bad_datasize + valid_wav[44:]
+    original_voice = text_to_speech.voice
+    text_to_speech.voice = MockVoice(bad_wav)
+    try:
+        wav = text_to_speech.synthesize_speech("hi")
+    finally:
+        text_to_speech.voice = original_voice
+    with wave.open(io.BytesIO(wav), "rb") as wf:
+        assert wf.getnframes() == 10

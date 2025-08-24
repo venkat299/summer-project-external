@@ -2,6 +2,7 @@
 
 import logging
 import io
+import struct
 from piper.voice import PiperVoice
 from ai_interviewer.config import TTS_VOICE_MODEL
 from ai_interviewer.utils.wav_helper import add_wav_header
@@ -36,9 +37,16 @@ def synthesize_speech(text: str) -> bytes:
             voice.synthesize(text, wav_buffer)
             wav_data = wav_buffer.getvalue()
 
-        if not wav_data.startswith(b"RIFF"):
+        pcm_bytes = wav_data
+        if wav_data.startswith(b"RIFF") and len(wav_data) >= 44:
+            header_datasize = struct.unpack('<I', wav_data[40:44])[0]
+            pcm_bytes = wav_data[44:]
+            if header_datasize != len(pcm_bytes):
+                sample_rate = getattr(voice, "sample_rate", 16000)
+                wav_data = add_wav_header(pcm_bytes, sample_rate)
+        else:
             sample_rate = getattr(voice, "sample_rate", 16000)
-            wav_data = add_wav_header(wav_data, sample_rate)
+            wav_data = add_wav_header(pcm_bytes, sample_rate)
 
         # Log the request being sent to the browser
         logger.info(f"Synthesized speech for browser. WAV data size: {len(wav_data)} bytes.")
