@@ -70,7 +70,7 @@
         // --- Configuration ---
         const SESSION_ID = `session_${Date.now()}`;
         const WEBSOCKET_URL = `ws://localhost:8000/interview/${SESSION_ID}`; // Assumes FastAPI runs on port 8000
-        const AUDIO_SAMPLE_RATE = 16000; // Sample rate required by Whisper
+        const AUDIO_SAMPLE_RATE = 16000; // Whisper expects 16 kHz; server handles resampling
         const AUDIO_TIMESLICE = 500; // Send audio data every 500ms
 
         // --- State Management ---
@@ -168,12 +168,9 @@
 
                 mediaRecorder.ondataavailable = (event) => {
                     if (event.data.size > 0 && websocket && websocket.readyState === WebSocket.OPEN) {
-                        // This sends audio as a Blob. The backend will need to handle it.
-                        // For raw PCM bytes, a more complex setup with an AudioWorklet is needed.
-                        // This approach is simpler and works if the backend can decode webm/opus.
-                        // **NOTE**: The provided Python backend expects raw PCM bytes. This client
-                        // would need an AudioWorklet to convert the stream to the correct format.
-                        // For this test, we'll assume the backend can be adapted or this is a demo.
+                        // Audio is sent as WebM/Opus blobs. The backend decodes and resamples
+                        // to 16‑kHz mono PCM using ffmpeg/pydub before transcription, so an
+                        // AudioWorklet is not required here.
                         websocket.send(event.data);
                     }
                 };
