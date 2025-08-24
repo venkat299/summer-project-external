@@ -136,6 +136,15 @@
                     // Once AI finishes speaking, start listening for the user's response
                     setStatus('Your turn. I am listening...', 'text-green-400');
                     startListening();
+                } else {
+                    try {
+                        const message = JSON.parse(event.data);
+                        if (message.type === 'tts_error') {
+                            setStatus('Sorry, I’m having trouble speaking right now.', 'text-red-500');
+                        }
+                    } catch (err) {
+                        console.error('Unknown message from server:', event.data);
+                    }
                 }
             };
 

@@ -5,6 +5,7 @@ Manages the real-time, bidirectional flow of an interview session using WebSocke
 This is the core integration point that orchestrates all other modules.
 """
 import logging
+import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, BackgroundTasks
 from ai_interviewer.audio_processing.speech_to_text import transcribe_audio
 from ai_interviewer.audio_processing.text_to_speech import synthesize_speech
@@ -38,7 +39,10 @@ async def interview_session(websocket: WebSocket, session_id: str, background_ta
     # Log the question being asked
     logger.info(f"AI ASKING (session {session_id}): {initial_question_text}")
     initial_audio = synthesize_speech(initial_question_text)
-    await websocket.send_bytes(initial_audio)
+    if initial_audio is None:
+        await websocket.send_text(json.dumps({"type": "tts_error"}))
+    else:
+        await websocket.send_bytes(initial_audio)
     
 
     try:
@@ -54,7 +58,10 @@ async def interview_session(websocket: WebSocket, session_id: str, background_ta
             if not transcribed_text or transcribed_text == "[Transcription Error]":
                 logger.warning(f"Transcription failed or empty for {session_id}. Asking to repeat.")
                 repeat_audio = synthesize_speech("I'm sorry, I didn't catch that. Could you please repeat your answer?")
-                await websocket.send_bytes(repeat_audio)
+                if repeat_audio is None:
+                    await websocket.send_text(json.dumps({"type": "tts_error"}))
+                else:
+                    await websocket.send_bytes(repeat_audio)
                 continue
             
             current_question_text = mock_knowledge_graph["nodes"][session.current_node_id]["question_text"]
@@ -80,7 +87,10 @@ async def interview_session(websocket: WebSocket, session_id: str, background_ta
             # 6. Synthesize and send next question
             logger.info(f"AI ASKING (session {session_id}): {next_question_text}")
             next_audio = synthesize_speech(next_question_text)
-            await websocket.send_bytes(next_audio)
+            if next_audio is None:
+                await websocket.send_text(json.dumps({"type": "tts_error"}))
+            else:
+                await websocket.send_bytes(next_audio)
 
             if session.current_node_id == "end_node":
                 logger.info(f"Interview ended for {session_id}. Closing connection.")

@@ -2,6 +2,7 @@
 
 import logging
 import io
+from typing import Optional
 from piper.voice import PiperVoice
 from ai_interviewer.config import TTS_VOICE_MODEL
 from ai_interviewer.utils.wav_helper import add_wav_header
@@ -17,17 +18,18 @@ except Exception as e:
     logger.error(f"Failed to load TTS voice model: {e}.", exc_info=True)
     voice = None
 
-def synthesize_speech(text: str) -> bytes:
+def synthesize_speech(text: str) -> Optional[bytes]:
     """
     Synthesizes text into speech and returns it as a complete WAV file in bytes.
 
     - Method: Uses an in-memory buffer (io.BytesIO) to have piper-tts write a
               complete WAV file, then retrieves the bytes from the buffer.
     - Input: A string of text to be spoken.
-    - Output: A bytes object containing a complete and playable WAV file.
+    - Output: A bytes object containing a complete and playable WAV file, or
+      ``None`` if synthesis fails.
     """
     if not voice or not text:
-        return b''
+        return None
     try:
         # Use an in-memory buffer to capture the WAV output.
         with io.BytesIO() as wav_buffer:
@@ -46,4 +48,4 @@ def synthesize_speech(text: str) -> bytes:
         return wav_data
     except Exception as e:
         logger.error(f"Error during speech synthesis: {e}", exc_info=True)
-        return b'[Speech Synthesis Error]'
+        return None
