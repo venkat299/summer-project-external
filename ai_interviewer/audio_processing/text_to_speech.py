@@ -4,6 +4,7 @@ import logging
 import io
 from piper.voice import PiperVoice
 from ai_interviewer.config import TTS_VOICE_MODEL
+from ai_interviewer.utils.wav_helper import add_wav_header
 
 # --- Logger Setup ---
 logger = logging.getLogger(__name__)
@@ -34,10 +35,14 @@ def synthesize_speech(text: str) -> bytes:
             # to a file-like object, which is the most reliable approach.
             voice.synthesize(text, wav_buffer)
             wav_data = wav_buffer.getvalue()
-        
+
+        if not wav_data.startswith(b"RIFF"):
+            sample_rate = getattr(voice, "sample_rate", 16000)
+            wav_data = add_wav_header(wav_data, sample_rate)
+
         # Log the request being sent to the browser
         logger.info(f"Synthesized speech for browser. WAV data size: {len(wav_data)} bytes.")
-        
+
         return wav_data
     except Exception as e:
         logger.error(f"Error during speech synthesis: {e}", exc_info=True)
